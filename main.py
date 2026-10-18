@@ -1,8 +1,13 @@
 
+import logging
+
+import jwt
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import jwt
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -34,13 +39,17 @@ async def verify_token(body: VerifyRequest):
             issuer=ISSUER,
             audience=AUDIENCE,
             options={
-                "require": ["exp", "iss", "aud", "sub", "email"],
-                "verify_signature": True,
-                "verify_exp": True,
-                "verify_iss": True,
-                "verify_aud": True,
+                "require": ["exp", "iss", "aud"],
             },
         )
+
+        # Return the original claims without changing their types.
+        if "email" not in claims or "sub" not in claims:
+            logger.warning("Validly signed token lacks email or sub")
+            return JSONResponse(
+                status_code=401,
+                content={"valid": False},
+            )
 
         return {
             "valid": True,
@@ -49,7 +58,13 @@ async def verify_token(body: VerifyRequest):
             "aud": claims["aud"],
         }
 
-    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
+    except jwt.InvalidTokenError as exc:
+        # The exception message appears in Render logs.
+        logger.warning(
+            "JWT verification failed: %s: %s",
+            type(exc).__name__,
+            str(exc),
+        )
         return JSONResponse(
             status_code=401,
             content={"valid": False},
